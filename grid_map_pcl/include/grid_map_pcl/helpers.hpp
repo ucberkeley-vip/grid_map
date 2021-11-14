@@ -28,6 +28,8 @@ std::string getOutputBagPath(const ros::NodeHandle& nh);
 
 std::string getPcdFilePath(const ros::NodeHandle& nh);
 
+std::string getPointcloudTopic(const ros::NodeHandle& nh);
+
 std::string getMapFrame(const ros::NodeHandle& nh);
 
 std::string getMapRosbagTopic(const ros::NodeHandle& nh);

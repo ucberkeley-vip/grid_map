@@ -118,6 +118,25 @@ target_link_libraries(grid_map_pcl_loader_node
   ${catkin_LIBRARIES}
 )
 
+# pointcloud2 node
+add_executable(grid_map_pcl_from_pointcloud2
+  src/grid_map_pcl_from_pointcloud2.cpp
+)
+add_dependencies(grid_map_pcl_from_pointcloud2
+  ${PROJECT_NAME}
+)
+target_include_directories(grid_map_pcl_from_pointcloud2 PRIVATE
+  include
+)
+target_include_directories(grid_map_pcl_from_pointcloud2 SYSTEM PUBLIC
+  ${catkin_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIR}
+)
+target_link_libraries(grid_map_pcl_from_pointcloud2
+  ${PROJECT_NAME}
+  ${catkin_LIBRARIES}
+)
+
 #############
 ## Install ##
 #############

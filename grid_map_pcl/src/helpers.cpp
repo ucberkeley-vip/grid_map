@@ -62,6 +62,12 @@ std::string getPcdFilePath(const ros::NodeHandle& nh) {
   return pathToCloud;
 }
 
+std::string getPointcloudTopic(const ros::NodeHandle& nh){
+    std::string topicName;
+    nh.param<std::string>("input_pointcloud_topic", topicName, "");
+    return topicName;
+}
+
 std::string getMapFrame(const ros::NodeHandle& nh) {
   std::string mapFrame;
   nh.param<std::string>("map_frame", mapFrame, "map");
