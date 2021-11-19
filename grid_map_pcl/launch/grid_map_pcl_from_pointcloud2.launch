@@ -15,7 +15,7 @@
     
   <node name="grid_map_pcl_from_pointcloud2" pkg="grid_map_pcl"
       type="grid_map_pcl_from_pointcloud2" output="screen" launch-prefix="$(arg prefix)">
-    <rosparam file="$(find grid_map_pcl)/config/parameters.yaml" />
+    <rosparam file="$(find grid_map_pcl)/config/mapping_parameters.yaml" />
     <param name="folder_path"             type="string" value="$(arg folder_path)" />
     <param name="pcd_filename"            type="string" value="$(arg pcd_filename)" />
     <param name="input_pointcloud_topic"  type="string" value="$(arg input_pointcloud_topic)" />
