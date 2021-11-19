@@ -44,7 +44,13 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
     gridMapPclLoader.setInputCloud(pcl_cloud_input);
     gm::processPointcloud(&gridMapPclLoader, nh);
 
-    grid_map::GridMap gridMap = gridMapPclLoader.getGridMap();
+    // change resolution to 0.02(m). This is not ideal, should change resolution in some param file.
+//    grid_map::GridMap gridMap = gridMapPclLoader.getGridMap();
+//    gridMap.setFrameId(gm::getMapFrame(nh));
+
+    grid_map::GridMap originalMap = gridMapPclLoader.getGridMap();
+    grid_map::GridMap gridMap;
+    grid_map::GridMapCvProcessing::changeResolution(originalMap, gridMap, 0.02);
     gridMap.setFrameId(gm::getMapFrame(nh));
 
     // publish grid map
