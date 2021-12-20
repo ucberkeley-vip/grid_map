@@ -9,6 +9,7 @@
 
 #include <grid_map_core/GridMap.hpp>
 #include <grid_map_ros/GridMapRosConverter.hpp>
+#include <grid_map_cv/grid_map_cv.hpp>
 
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_types.h>
@@ -18,7 +19,11 @@
 
 #include "grid_map_pcl/GridMapPclLoader.hpp"
 #include "grid_map_pcl/helpers.hpp"
-#include <grid_map_cv/grid_map_cv.hpp>
+
+#include "opencv2/core.hpp"
+//#include <opencv2/core/utility.hpp>
+#include "opencv2/highgui.hpp"
+
 
 #include "sensor_msgs/PointCloud2.h"
 
@@ -48,8 +53,25 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
 //    grid_map::GridMap gridMap = gridMapPclLoader.getGridMap();
     grid_map::GridMap originalMap = gridMapPclLoader.getGridMap();
     grid_map::GridMap gridMap;
-    grid_map::GridMapCvProcessing::changeResolution(originalMap, gridMap, 0.02);
+    grid_map::GridMapCvProcessing::changeResolution(originalMap, gridMap, 0.001);
     gridMap.setFrameId(gm::getMapFrame(nh));
+
+    std::vector<std::string> layer_name = gridMap.getLayers();
+    for (auto &name : layer_name) {
+        ROS_INFO("layer name %s", name.c_str());
+    }
+
+    std::string grid_map_col = std::to_string(gridMap.getSize()(1));
+    std::string grid_map_row = std::to_string(gridMap.getSize()(0));
+
+    ROS_INFO("grid map column size: %s", grid_map_col.c_str());
+    ROS_INFO("grid map row size: %s", grid_map_row.c_str());
+
+//    grid_map::Matrix m = gridMap[];
+    cv::Mat map;
+    grid_map::GridMapCvConverter::toImage<unsigned char,3>(gridMap, "elevation", CV_16UC3, map);
+    cv:imwrite("/home/viplab/temp.png", map);
+
 
     // publish grid map
 
