@@ -11,7 +11,7 @@
   <arg name="map_layer_name"         default="elevation" />
   <arg name="prefix"                 default=""/>
   <arg name="set_verbosity_to_debug" default="false"/>
-    
+
   <node name="grid_map_pcl_loader_node" pkg="grid_map_pcl"
       type="grid_map_pcl_loader_node" output="screen" launch-prefix="$(arg prefix)">
     <rosparam file="$(find grid_map_pcl)/config/parameters.yaml" />
