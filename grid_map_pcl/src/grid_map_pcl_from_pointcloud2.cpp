@@ -5,6 +5,8 @@
  *      Author: Yibin Li
  */
 
+#include <iostream>
+
 #include <ros/ros.h>
 
 #include <grid_map_core/GridMap.hpp>
@@ -16,6 +18,8 @@
 #include <pcl/PCLPointCloud2.h>
 #include <pcl/conversions.h>
 #include <pcl_ros/transforms.h>
+
+#include <opencv2/core/eigen.hpp>
 
 #include "grid_map_pcl/GridMapPclLoader.hpp"
 #include "grid_map_pcl/helpers.hpp"
@@ -67,10 +71,50 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
     ROS_INFO("grid map column size: %s", grid_map_col.c_str());
     ROS_INFO("grid map row size: %s", grid_map_row.c_str());
 
-//    grid_map::Matrix m = gridMap[];
+    grid_map::Matrix& m = gridMap.get("elevation");
+
+//    namespace Eigen{
+//        template<class Matrix>
+//        void write_binary(const char* filename, const Matrix& matrix){
+//            std::ofstream out(filename, std::ios::out | std::ios::binary | std::ios::trunc);
+//            typename Matrix::Index rows=matrix.rows(), cols=matrix.cols();
+//            out.write((char*) (&rows), sizeof(typename Matrix::Index));
+//            out.write((char*) (&cols), sizeof(typename Matrix::Index));
+//            out.write((char*) matrix.data(), rows*cols*sizeof(typename Matrix::Scalar) );
+//            out.close();
+//        }
+//        template<class Matrix>
+//        void read_binary(const char* filename, Matrix& matrix){
+//            std::ifstream in(filename, std::ios::in | std::ios::binary);
+//            typename Matrix::Index rows=0, cols=0;
+//            in.read((char*) (&rows),sizeof(typename Matrix::Index));
+//            in.read((char*) (&cols),sizeof(typename Matrix::Index));
+//            matrix.resize(rows, cols);
+//            in.read( (char *) matrix.data() , rows*cols*sizeof(typename Matrix::Scalar) );
+//            in.close();
+//        }
+//    } // Eigen::
+
+    ROS_INFO("matrix column: %s", std::to_string(m.cols()).c_str());
     cv::Mat map;
-    grid_map::GridMapCvConverter::toImage<unsigned char,3>(gridMap, "elevation", CV_16UC3, map);
-    cv:imwrite("/home/viplab/temp.png", map);
+    grid_map::GridMapCvConverter::toImage<unsigned char,3>(gridMap, "elevation", CV_64FC3, map);
+    cv::imwrite("/home/viplab/temp.png", map);
+
+    // eigen matrix to opencv image
+    cv::Mat map_from_eigen;
+    float min_value = gridMap.get("elevation").minCoeffOfFinites();
+    float max_value = gridMap.get("elevation").maxCoeffOfFinites();
+    ROS_INFO("matrix min value: %s", std::to_string(min_value).c_str());
+    ROS_INFO("matrix max value: %s", std::to_string(max_value).c_str());
+    eigen2cv(m, map_from_eigen);
+    cv::imwrite("/home/viplab/map_from_eigen.png", map_from_eigen);
+
+    // eigen matrix to local txt file
+    std::ofstream file("/home/viplab/test.txt");
+    if (file.is_open())
+    {
+        file << "Here is the matrix m:\n" << m << '\n';
+    }
 
 
     // publish grid map
