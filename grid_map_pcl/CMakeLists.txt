@@ -20,6 +20,7 @@ set(CATKIN_PACKAGE_DEPENDENCIES
         grid_map_ros
         pcl_ros
         roscpp
+        pcl_conversions
         )
 
 find_package(OpenMP QUIET)
