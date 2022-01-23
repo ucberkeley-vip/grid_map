@@ -20,6 +20,7 @@
 #include <pcl_ros/transforms.h>
 
 #include <opencv2/core/eigen.hpp>
+#include <Eigen/Dense>
 
 #include "grid_map_pcl/GridMapPclLoader.hpp"
 #include "grid_map_pcl/helpers.hpp"
@@ -94,11 +95,23 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
 //            in.close();
 //        }
 //    } // Eigen::
+//    int m_columns = m.cols();
+//    int m_rows = m.rows();
+//    Eigen::ArrayXf mask = Eigen::ArrayXf::Zero(m_rows, m_columns);
+//    Eigen::ArrayXf filtered_m_array = (m.array() > -0.8).select(mask, m);
+//    filtered_m_array = (filtered_m_array < -0.6).select(mask, filtered_m_array);
+//    grid_map::Matrix filtered_m = filtered_m_array.matrix();
+//
+//    float filtered_m_min_value = filtered_m.minCoeff();
+//    float filtered_m_max_value = filtered_m.maxCoeff();
+//
+//    ROS_INFO("filtered_m min value: %s", std::to_string(filtered_m_min_value).c_str());
+//    ROS_INFO("filtered_m max value: %s", std::to_string(filtered_m_max_value).c_str());
 
     ROS_INFO("matrix column: %s", std::to_string(m.cols()).c_str());
     cv::Mat map;
-    grid_map::GridMapCvConverter::toImage<unsigned char,3>(gridMap, "elevation", CV_64FC3, map);
-    cv::imwrite("/home/viplab/temp.png", map);
+    grid_map::GridMapCvConverter::toImage<unsigned char,3>(gridMap, "elevation", CV_16UC3, map);
+    cv::imwrite("/home/viplab/grid_map_output/grid_map_img_from_cv_converter.png", map);
 
     // eigen matrix to opencv image
     cv::Mat map_from_eigen;
@@ -106,14 +119,14 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
     float max_value = gridMap.get("elevation").maxCoeffOfFinites();
     ROS_INFO("matrix min value: %s", std::to_string(min_value).c_str());
     ROS_INFO("matrix max value: %s", std::to_string(max_value).c_str());
-    eigen2cv(m, map_from_eigen);
-    cv::imwrite("/home/viplab/map_from_eigen.png", map_from_eigen);
+//    eigen2cv(m, map_from_eigen);
+//    cv::imwrite("/home/viplab/map_from_eigen.png", map_from_eigen);
 
     // eigen matrix to local txt file
-    std::ofstream file("/home/viplab/test.txt");
+    std::ofstream file("/home/viplab/grid_map_output/grid_map_eigen.txt");
     if (file.is_open())
     {
-        file << "Here is the matrix m:\n" << m << '\n';
+        file << m << '\n';
     }
 
 
