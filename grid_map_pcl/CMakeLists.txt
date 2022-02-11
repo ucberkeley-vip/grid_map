@@ -136,6 +136,25 @@ target_link_libraries(grid_map_pcl_from_pointcloud2
         ${PROJECT_NAME}
         ${catkin_LIBRARIES}
         )
+        
+# pointcloud2_with_odom node
+add_executable(grid_map_pcl_from_pointcloud2_with_odom
+        src/grid_map_pcl_from_pointcloud2_with_odom.cpp
+        )
+add_dependencies(grid_map_pcl_from_pointcloud2_with_odom
+        ${PROJECT_NAME}
+        )
+target_include_directories(grid_map_pcl_from_pointcloud2_with_odom PRIVATE
+        include
+        )
+target_include_directories(grid_map_pcl_from_pointcloud2_with_odom SYSTEM PUBLIC
+        ${catkin_INCLUDE_DIRS}
+        ${EIGEN3_INCLUDE_DIR}
+        )
+target_link_libraries(grid_map_pcl_from_pointcloud2_with_odom
+        ${PROJECT_NAME}
+        ${catkin_LIBRARIES}
+        )
 
 #############
 ## Install ##
