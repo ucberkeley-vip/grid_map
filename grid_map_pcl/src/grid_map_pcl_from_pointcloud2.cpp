@@ -105,10 +105,10 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
 
 
     cv::Mat map;
-    grid_map::GridMapCvConverter::toImage<unsigned char, 1>(localMap, "elevation", CV_8UC1, map);
+    grid_map::GridMapCvConverter::toImage<unsigned char, 1>(gridMap, "elevation", CV_8UC1, map);
     auto pathName = ros::package::getPath("grid_map_pcl");
     ROS_INFO("package name: %s", pathName.c_str());
-    cv::imwrite(pathName + "/local_image.png", map);
+    cv::imwrite(pathName + "/grid_image.png", map);
     
     // double min, max;
     // cv::minMaxLoc(raw, &min, &max);
