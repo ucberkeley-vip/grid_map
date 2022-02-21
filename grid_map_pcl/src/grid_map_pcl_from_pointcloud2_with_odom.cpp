@@ -66,35 +66,37 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     double odom_pose_position_x = odom_msg->pose.pose.position.x;
     double odom_pose_position_y = odom_msg->pose.pose.position.y;
     double odom_pose_position_z = odom_msg->pose.pose.position.z;
+    double odom_time = odom_msg->header.stamp.toSec();
+    double map_time = cloud_msg->header.stamp.toSec();
 
     ROS_INFO("pointcloud2 to pcl pointcloud conversion succeed!");
     ROS_INFO("frame id : %s", odom_msg->header.frame_id.c_str());
-    ROS_INFO("odom time : %f", odom_msg->header.stamp.toSec());
-    ROS_INFO("map time : %f", cloud_msg->header.stamp.toSec());
-    ROS_INFO("position x: %f", odom_msg->pose.pose.position.x);
-    ROS_INFO("position y: %f", odom_msg->pose.pose.position.y);
-    ROS_INFO("position z: %f", odom_msg->pose.pose.position.z);
+    ROS_INFO("odom time : %f", odom_time);
+    ROS_INFO("map time : %f", map_time);
+    ROS_INFO("position x: %f", odom_pose_position_x);
+    ROS_INFO("position y: %f", odom_pose_position_y);
+    ROS_INFO("position z: %f", odom_pose_position_z);
 
     // process point cloud and get local point cloud here. Should probably do it elsewhere
     pcl::PointCloud<pcl::PointXYZ> xf_cloud, yf_cloud, zf_cloud;
     pcl::PassThrough<pcl::PointXYZ> pass_x;
     pass_x.setInputCloud(pcl_cloud_input);
     pass_x.setFilterFieldName("x");
-    pass_x.setFilterLimits(-1.0 + odom_pose_position_x,1.0 + odom_pose_position_x);
+    pass_x.setFilterLimits(-1.0 + odom_pose_position_x,2.0 + odom_pose_position_x);
     pass_x.filter(xf_cloud);
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr xf_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>(xf_cloud));
     pcl::PassThrough<pcl::PointXYZ> pass_y;
     pass_y.setInputCloud(xf_cloud_ptr);
     pass_y.setFilterFieldName("y");
-    pass_y.setFilterLimits(-1.0 + odom_pose_position_x, 1.0 + odom_pose_position_y);
+    pass_y.setFilterLimits(-3.0 + odom_pose_position_x, 3.0 + odom_pose_position_y);
     pass_y.filter(yf_cloud);
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr yf_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>(yf_cloud));
     pcl::PassThrough<pcl::PointXYZ> pass_z;
     pass_z.setInputCloud(yf_cloud_ptr);
     pass_z.setFilterFieldName("z");
-    pass_z.setFilterLimits(-3.0 + odom_pose_position_z, 3.0 + odom_pose_position_z);
+    pass_z.setFilterLimits(-0.5 + odom_pose_position_z, 0.5 + odom_pose_position_z);
     pass_z.filter(zf_cloud);
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr zf_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>(zf_cloud));
@@ -104,10 +106,17 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 
 //    gridMapPclLoader.setInputCloud(pcl_cloud_input); // global point cloud
     gridMapPclLoader.setInputCloud(zf_cloud_ptr); // local point cloud
-    gridMapPclLoader.loadParameters(ros::package::getPath("grid_map_pcl") + "/config/parameters.yaml");
+//    gridMapPclLoader.loadParameters(ros::package::getPath("grid_map_pcl") + "/config/grid_map_odom_parameters.yaml");
+//    gridMapPclLoader.loadParameters(ros::package::getPath("grid_map_pcl") + "/config/parameters.yaml");
     gm::processPointcloud(&gridMapPclLoader, nh);
 
-    grid_map::GridMap gridMap = gridMapPclLoader.getGridMap();
+//    grid_map::GridMap gridMap = gridMapPclLoader.getGridMap();
+
+    grid_map::GridMap originalMap = gridMapPclLoader.getGridMap();
+    grid_map::GridMap gridMap;
+    grid_map::GridMapCvProcessing::changeResolution(originalMap, gridMap, 0.001);
+
+    gridMap.setFrameId(gm::getMapFrame(nh));
 
 ////    print out layers in grid map
 //    std::vector<std::string> layer_name = gridMap.getLayers();
@@ -148,7 +157,8 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
         grid_map::GridMapCvConverter::toImage<unsigned char,3>(gridMap, "elevation", CV_16UC3, map);
 //        grid_map::GridMapCvConverter::toImage<unsigned char,3>(localMap, "elevation", CV_16UC3, map);
 //        cv::imwrite("/home/viplab/grid_map_output/grid_map_img_from_cv_converter_" + odom_msg->header.stamp + ".png", map);
-        cv::imwrite("/home/viplab/grid_map_output/grid_map_img_from_cv_converter.png", map);
+        cv::imwrite("/home/viplab/grid_map_output/grid_map_img_from_cv_converter_" + std::to_string(odom_time) + ".png", map);
+//        cv::imwrite("/home/viplab/grid_map_output/grid_map_img_from_cv_converter.png", map);
 
 ////        eigen matrix to opencv image
 //        cv::Mat map_from_eigen;
