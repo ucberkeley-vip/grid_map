@@ -37,9 +37,12 @@
 #include "grid_map_pcl/helpers.hpp"
 
 #include "opencv2/core.hpp"
-//#include <opencv2/core/utility.hpp>
+#include <opencv2/core/utility.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 #include "opencv2/highgui.hpp"
 
+#include "edlines.h"
+#include "edlines.cpp"
 
 #include "sensor_msgs/PointCloud2.h"
 
@@ -56,6 +59,9 @@ grid_map::GridMapPclLoader gridMapPclLoader;
 void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, const nav_msgs::Odometry::ConstPtr& odom_msg){
     // maybe move all process into this subscriber callback function
     bool save_grid_map_to_local = true;
+    bool save_grid_map_matrix_to_local = false;
+    bool line_detection = true;
+
     ROS_INFO("inside callback");
     ros::NodeHandle nh("~");
 
@@ -131,33 +137,44 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 
     grid_map::Matrix& m = gridMap.get("elevation");
 
-    ROS_INFO("matrix column: %s", std::to_string(m.cols()).c_str());
-
     float min_value = gridMap.get("elevation").minCoeffOfFinites();
     float max_value = gridMap.get("elevation").maxCoeffOfFinites();
     ROS_INFO("matrix min value: %s", std::to_string(min_value).c_str());
     ROS_INFO("matrix max value: %s", std::to_string(max_value).c_str());
-    ROS_INFO("=========================================================");
-    ROS_INFO(" ");
-
-//    bool success;
-//    grid_map::Position pos = gridMap.getPosition();
-//    grid_map::Position pos = grid_map::Position(odom_msg->pose.pose.position.x, odom_msg->pose.pose.position.y); // use real odom info
-//    ROS_INFO("Grid map position: %f %f\n", pos(0), pos(1));
-//    ROS_INFO("Grid map length: %f %f\n", gridMap.getLength()(0), gridMap.getLength()(1));
-//    grid_map::Length length(2.0, 2.0);
-//    grid_map::GridMap localMap = gridMap.getSubmap(pos, length, success);
-//    if (!success) {
-//        ROS_WARN("getting local submap failed");
-//    }
 
     if (save_grid_map_to_local) {
         cv::Mat map;
-        grid_map::GridMapCvConverter::toImage<unsigned char,3>(gridMap, "elevation", CV_16UC3, map);
+        grid_map::GridMapCvConverter::toImage<unsigned char, 3>(gridMap, "elevation", CV_16UC3, map);
 
         std::string img_name = "/home/viplab/grid_map_output/grid_map_img_" + std::to_string(odom_time) + ".png";
-        std::string img_with_L515_name = "/home/viplab/grid_map_output/grid_map_img_with_L515_" + std::to_string(odom_time) + ".png";
+        std::string img_with_L515_name =
+                "/home/viplab/grid_map_output/grid_map_img_with_L515_" + std::to_string(odom_time) + ".png";
+        std::string img_with_line_detection_name =
+                "/home/viplab/grid_map_output/grid_map_img_with_line_detection_" + std::to_string(odom_time) + ".png";
         cv::imwrite(img_name, map);
+
+        if (line_detection) {
+            cv::Mat map_img = cv::imread(img_name);
+            cv::Mat gray_image;
+            cv::cvtColor(map_img, gray_image, cv::COLOR_BGR2GRAY);
+            int W = map_img.cols;
+            int H = map_img.rows;
+            int image_size = W * H;
+            unsigned char* input = new unsigned char[image_size];
+            memcpy(input, gray_image.data, image_size);
+            std::vector<line_float_t> Lines;
+            boundingbox_t Bbox = { 0,0,W,H };
+            float scalex =1;
+            float scaley =1;
+            int Flag = 0;
+            Flag = EdgeDrawingLineDetector(input, W, H, scalex, scaley, Bbox, Lines);
+            ROS_INFO("line detection status: %d", Flag);
+            for (int i = 0; i < Lines.size(); i++)
+            {
+                line(map_img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 0, 255), 2);
+            }
+            cv::imwrite(img_with_line_detection_name, map_img);
+        }
 
 //        // draw L515 position as filled circle
 //        cv::Mat img = cv::imread(img_name, cv::IMREAD_COLOR);
@@ -165,25 +182,23 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 //        cv::Scalar color(0,100,0);
 //        cv::circle(img, centerL515, 10, color, cv::FILLED);
 //        cv::imwrite(img_with_L515_name, img);
-
-////        eigen matrix to opencv image
-//        cv::Mat map_from_eigen;
-//
-//        eigen2cv(m, map_from_eigen);
-//        cv::imwrite("/home/viplab/map_from_eigen.png", map_from_eigen);
-//
-////        eigen matrix to local txt file
-//        std::ofstream file("/home/viplab/grid_map_output/grid_map_eigen.txt");
-//        if (file.is_open())
-//        {
-//            file << m << '\n';
-//        }
+    }
+    if (save_grid_map_matrix_to_local) {
+//        eigen matrix to local txt file
+        std::ofstream file("/home/viplab/grid_map_output/grid_map_eigen.txt");
+        if (file.is_open())
+        {
+            file << m << '\n';
+        }
     }
 
     // publish grid map
     grid_map_msgs::GridMap msg;
     grid_map::GridMapRosConverter::toMessage(gridMap, msg);
     gridMapPub.publish(msg);
+
+    ROS_INFO("=========================================================");
+    ROS_INFO(" ");
 }
 
 int main(int argc, char** argv) {
@@ -200,32 +215,10 @@ int main(int argc, char** argv) {
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, nav_msgs::Odometry> MySyncPolicy;
     message_filters::Synchronizer<MySyncPolicy> sync(MySyncPolicy(100), pc2_sub, odom_sub);
 
-//    message_filters::TimeSynchronizer<sensor_msgs::PointCloud2, nav_msgs::Odometry> sync(pc2_sub, odom_sub, 1);
     sync.registerCallback(boost::bind(&pointcloud_callback, _1, _2));
 
-//    sub = nh.subscribe(gm::getPointcloudTopic(nh), 1, pointcloud_callback);
-
-    gridMapPub = nh.advertise<grid_map_msgs::GridMap>("grid_map_from_raw_pointcloud", 1, true);
+    gridMapPub = nh.advertise<grid_map_msgs::GridMap>("/grid_map_from_raw_pointcloud", 1, true);
     localPointCloudPub = nh.advertise<sensor_msgs::PointCloud2>("/local_map", 100);
-
-/*
-//    const std::string pathToCloud = gm::getPcdFilePath(nh);
-    gridMapPclLoader.loadParameters(gm::getParameterPath(nh));
-//    gridMapPclLoader.loadCloudFromPcdFile(pathToCloud);
-
-    gm::processPointcloud(&gridMapPclLoader, nh);
-
-    grid_map::GridMap gridMap = gridMapPclLoader.getGridMap();
-    gridMap.setFrameId(gm::getMapFrame(nh));
-
-//    gm::saveGridMap(gridMap, nh, gm::getMapRosbagTopic(nh));
-
-    // publish grid map
-
-    grid_map_msgs::GridMap msg;
-    grid_map::GridMapRosConverter::toMessage(gridMap, msg);
-    gridMapPub.publish(msg);
-    */
 
     // run
     ros::spin();
