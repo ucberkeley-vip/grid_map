@@ -56,9 +56,61 @@ ros::Subscriber sub;
 grid_map::GridMapPclLoader gridMapPclLoader;
 //ros::NodeHandle nh("~");
 
+// process point cloud and get local point cloud here. Should probably do it elsewhere
+pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud_filter(const pcl::PointCloud<pcl::PointXYZ>::Ptr& pointcloud_input,
+                                                      double x_limit_min, double x_limit_max,
+                                                      double y_limit_min, double y_limit_max,
+                                                      double z_limit_min, double z_limit_max) {
+
+    pcl::PointCloud<pcl::PointXYZ> xf_cloud, yf_cloud, zf_cloud;
+    pcl::PassThrough<pcl::PointXYZ> pass_x;
+    pass_x.setInputCloud(pointcloud_input);
+    pass_x.setFilterFieldName("x");
+    pass_x.setFilterLimits(x_limit_min, x_limit_max);
+    pass_x.filter(xf_cloud);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr xf_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>(xf_cloud));
+    pcl::PassThrough<pcl::PointXYZ> pass_y;
+    pass_y.setInputCloud(xf_cloud_ptr);
+    pass_y.setFilterFieldName("y");
+    pass_y.setFilterLimits(y_limit_min, y_limit_max);
+    pass_y.filter(yf_cloud);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr yf_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>(yf_cloud));
+    pcl::PassThrough<pcl::PointXYZ> pass_z;
+    pass_z.setInputCloud(yf_cloud_ptr);
+    pass_z.setFilterFieldName("z");
+    pass_z.setFilterLimits(z_limit_min, z_limit_max);
+    pass_z.filter(zf_cloud);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr zf_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>(zf_cloud));
+    return zf_cloud_ptr;
+}
+
+void get_edline_detection(cv::Mat& img) {
+    cv::Mat gray_image;
+    cv::cvtColor(img, gray_image, cv::COLOR_BGR2GRAY);
+    int W = img.cols;
+    int H = img.rows;
+    int image_size = W * H;
+    unsigned char* input = new unsigned char[image_size];
+    memcpy(input, gray_image.data, image_size);
+    std::vector<line_float_t> Lines;
+    boundingbox_t Bbox = { 0,0,W,H };
+    float scalex =1;
+    float scaley =1;
+    int Flag = 0;
+    Flag = EdgeDrawingLineDetector(input, W, H, scalex, scaley, Bbox, Lines);
+    ROS_INFO("line detection status: %d", Flag); // 0 means ok
+    for (int i = 0; i < Lines.size(); i++)
+    {
+        line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 0, 255), 2);
+    }
+}
+
 void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, const nav_msgs::Odometry::ConstPtr& odom_msg){
     // maybe move all process into this subscriber callback function
-    bool save_grid_map_to_local = true;
+    bool save_grid_map_to_local = false;
     bool save_grid_map_matrix_to_local = false;
     bool line_detection = true;
 
@@ -83,29 +135,14 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     ROS_INFO("position y: %f", odom_pose_position_y);
     ROS_INFO("position z: %f", odom_pose_position_z);
 
-    // process point cloud and get local point cloud here. Should probably do it elsewhere
-    pcl::PointCloud<pcl::PointXYZ> xf_cloud, yf_cloud, zf_cloud;
-    pcl::PassThrough<pcl::PointXYZ> pass_x;
-    pass_x.setInputCloud(pcl_cloud_input);
-    pass_x.setFilterFieldName("x");
-    pass_x.setFilterLimits(-0.2 + odom_pose_position_x,1.2 + odom_pose_position_x);
-    pass_x.filter(xf_cloud);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr zf_cloud_ptr = pointcloud_filter(pcl_cloud_input,
+                                                                         -0.2 + odom_pose_position_x, // x lim min
+                                                                         1.2 + odom_pose_position_x, // x lim max
+                                                                         -0.6 + odom_pose_position_y, // y lim min
+                                                                         0.6 + odom_pose_position_y, // y lim max
+                                                                         -0.5 + odom_pose_position_z, // z lim min
+                                                                         -0.2 + odom_pose_position_z); // z lim max
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr xf_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>(xf_cloud));
-    pcl::PassThrough<pcl::PointXYZ> pass_y;
-    pass_y.setInputCloud(xf_cloud_ptr);
-    pass_y.setFilterFieldName("y");
-    pass_y.setFilterLimits(-0.6 + odom_pose_position_y, 0.6 + odom_pose_position_y);
-    pass_y.filter(yf_cloud);
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr yf_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>(yf_cloud));
-    pcl::PassThrough<pcl::PointXYZ> pass_z;
-    pass_z.setInputCloud(yf_cloud_ptr);
-    pass_z.setFilterFieldName("z");
-    pass_z.setFilterLimits(-0.5 + odom_pose_position_z, -0.2 + odom_pose_position_z);
-    pass_z.filter(zf_cloud);
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr zf_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>(zf_cloud));
     sensor_msgs::PointCloud2 LocalPointsMsg;
     pcl::toROSMsg(*zf_cloud_ptr, LocalPointsMsg);
     localPointCloudPub.publish(LocalPointsMsg);
@@ -117,6 +154,7 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 
     grid_map::GridMap gridMap = gridMapPclLoader.getGridMap();
 
+////    change map resolution (default is 0.01)
 //    grid_map::GridMap originalMap = gridMapPclLoader.getGridMap();
 //    grid_map::GridMap gridMap;
 //    grid_map::GridMapCvProcessing::changeResolution(originalMap, gridMap, 0.005);
@@ -142,39 +180,18 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     ROS_INFO("matrix min value: %s", std::to_string(min_value).c_str());
     ROS_INFO("matrix max value: %s", std::to_string(max_value).c_str());
 
-    if (save_grid_map_to_local) {
-        cv::Mat map;
-        grid_map::GridMapCvConverter::toImage<unsigned char, 3>(gridMap, "elevation", CV_16UC3, map);
+    cv::Mat map;
+    grid_map::GridMapCvConverter::toImage<unsigned char, 3>(gridMap, "elevation", CV_16UC3, map);
+    std::string img_name = "/home/viplab/grid_map_output/grid_map_img.png";
+    std::string img_with_line_detection_name = "/home/viplab/grid_map_output/grid_map_img_with_line_detection.png";
 
-        std::string img_name = "/home/viplab/grid_map_output/grid_map_img_" + std::to_string(odom_time) + ".png";
+    if (save_grid_map_to_local) {
+        img_name = "/home/viplab/grid_map_output/grid_map_img_" + std::to_string(odom_time) + ".png";
+
         std::string img_with_L515_name =
                 "/home/viplab/grid_map_output/grid_map_img_with_L515_" + std::to_string(odom_time) + ".png";
-        std::string img_with_line_detection_name =
+        img_with_line_detection_name =
                 "/home/viplab/grid_map_output/grid_map_img_with_line_detection_" + std::to_string(odom_time) + ".png";
-        cv::imwrite(img_name, map);
-
-        if (line_detection) {
-            cv::Mat map_img = cv::imread(img_name);
-            cv::Mat gray_image;
-            cv::cvtColor(map_img, gray_image, cv::COLOR_BGR2GRAY);
-            int W = map_img.cols;
-            int H = map_img.rows;
-            int image_size = W * H;
-            unsigned char* input = new unsigned char[image_size];
-            memcpy(input, gray_image.data, image_size);
-            std::vector<line_float_t> Lines;
-            boundingbox_t Bbox = { 0,0,W,H };
-            float scalex =1;
-            float scaley =1;
-            int Flag = 0;
-            Flag = EdgeDrawingLineDetector(input, W, H, scalex, scaley, Bbox, Lines);
-            ROS_INFO("line detection status: %d", Flag);
-            for (int i = 0; i < Lines.size(); i++)
-            {
-                line(map_img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 0, 255), 2);
-            }
-            cv::imwrite(img_with_line_detection_name, map_img);
-        }
 
 //        // draw L515 position as filled circle
 //        cv::Mat img = cv::imread(img_name, cv::IMREAD_COLOR);
@@ -183,6 +200,15 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 //        cv::circle(img, centerL515, 10, color, cv::FILLED);
 //        cv::imwrite(img_with_L515_name, img);
     }
+
+    cv::imwrite(img_name, map);
+
+    if (line_detection) {
+        cv::Mat map_img = cv::imread(img_name);
+        get_edline_detection(map);
+        cv::imwrite(img_with_line_detection_name, map);
+    }
+
     if (save_grid_map_matrix_to_local) {
 //        eigen matrix to local txt file
         std::ofstream file("/home/viplab/grid_map_output/grid_map_eigen.txt");
