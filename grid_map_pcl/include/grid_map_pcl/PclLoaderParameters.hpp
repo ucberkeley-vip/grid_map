@@ -24,7 +24,7 @@ class PointcloudProcessor;
 class PclLoaderParameters {
   struct DownsamplingParameters {
 //    Eigen::Vector3d voxelSize_{0.05, 0.05, 0.05};
-    Eigen::Vector3d voxelSize_{0.005, 0.005, 0.005};
+    Eigen::Vector3d voxelSize_{0.05, 0.05, 0.05};
     bool isDownsampleCloud_ = false;
   };
 
@@ -51,11 +51,12 @@ class PclLoaderParameters {
 //    unsigned int minCloudPointsPerCell_ = 2;
     double resolution_ = 0.01;
     unsigned int minCloudPointsPerCell_ = 2;
-    unsigned int maxCloudPointsPerCell_ = 100000;
+//    unsigned int maxCloudPointsPerCell_ = 100000;
+      unsigned int maxCloudPointsPerCell_ = 100;
   };
 
   struct Parameters {
-    unsigned int numThreads_ = 4;
+    unsigned int numThreads_ = 32;
     RigidBodyTransformation cloudTransformation_;
     OutlierRemovalParameters outlierRemoval_;
     ClusterExtractionParameters clusterExtraction_;
