@@ -45,12 +45,14 @@
 #include "edlines.cpp"
 
 #include "sensor_msgs/PointCloud2.h"
+#include "std_msgs/Float32.h"
 
 
 namespace gm = ::grid_map::grid_map_pcl;
 
 ros::Publisher gridMapPub;
 ros::Publisher localPointCloudPub;
+ros::Publisher joistDistancePub;
 ros::Subscriber sub;
 
 grid_map::GridMapPclLoader gridMapPclLoader;
@@ -87,7 +89,8 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud_filter(const pcl::PointCloud<pcl:
     return zf_cloud_ptr;
 }
 
-void get_edline_detection(cv::Mat& img) {
+// return the distance of closest horizontal line to the image bottom, also draw lines on image
+float get_edline_detection(cv::Mat& img) {
     cv::Mat gray_image;
     cv::cvtColor(img, gray_image, cv::COLOR_BGR2GRAY);
     int W = img.cols;
@@ -102,15 +105,52 @@ void get_edline_detection(cv::Mat& img) {
     int Flag = 0;
     Flag = EdgeDrawingLineDetector(input, W, H, scalex, scaley, Bbox, Lines);
     ROS_INFO("line detection status: %d", Flag); // 0 means ok
+    std_msgs::Float32 min_joist_distance_msg;
+    float min_joist_distance = 999;
     for (int i = 0; i < Lines.size(); i++)
     {
-        line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 0, 255), 2);
+        // find the horizontal line that closes to the bottom
+        // horizontal line has less than 0.2 rad (11.45 degree) of tilt
+
+        if ((atan(abs(Lines[i].starty - Lines[i].endy) / abs(Lines[i].startx - Lines[i].endx))) < 0.2) {
+            float midy = (Lines[i].starty + Lines[i].endy) / 2;
+            ROS_INFO("midy: %f", midy);
+            min_joist_distance = std::min(min_joist_distance, H - abs(midy)); // note that the top row is 0 and the bottom row is H
+            min_joist_distance_msg.data = min_joist_distance;
+
+            // only shows the potential joist
+            line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 255, 0), 2);
+        }
+
+//        line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 0, 255), 2);
     }
+    joistDistancePub.publish(min_joist_distance_msg);
+}
+
+// function to calculate the average height near "potential joist"
+float get_average_grid_height(grid_map::GridMap grid_map, grid_map::Position& top_left, grid_map::Position& bottom_right) {
+    int grid_map_col = grid_map.getSize()(1);
+    int grid_map_row = grid_map.getSize()(0);
+    int x1 = round(top_left.x());
+    int y1 = round(top_left.y());
+    int x2 = round(bottom_right.x());
+    int y2 = round(bottom_right.y());
+    float height_sum = 0;
+    int valid_cell_num = 0;
+    for (int i = x1-2; i < x2+3; i++) {
+        for (int j = y1-2; i < y2+3; i++) {
+            if (i > -1 && i < grid_map_col && j > -1 && j < grid_map_row) {
+                height_sum += grid_map.atPosition("elevation", grid_map::Position(i, j));
+                valid_cell_num++;
+            }
+        }
+    }
+    return height_sum / valid_cell_num;
 }
 
 void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, const nav_msgs::Odometry::ConstPtr& odom_msg){
     // maybe move all process into this subscriber callback function
-    bool save_grid_map_to_local = false;
+    bool save_grid_map_to_local = true;
     bool save_grid_map_matrix_to_local = false;
     bool line_detection = true;
 
@@ -135,9 +175,11 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     ROS_INFO("position y: %f", odom_pose_position_y);
     ROS_INFO("position z: %f", odom_pose_position_z);
 
+    // the output image doesn't always have the same size as input pointcloud, therefore it is hard to localize where
+    // robot is in the image. To make -0.6 and 0.6 for y we know the robot is always in the middle.
     pcl::PointCloud<pcl::PointXYZ>::Ptr zf_cloud_ptr = pointcloud_filter(pcl_cloud_input,
-                                                                         -0.2 + odom_pose_position_x, // x lim min
-                                                                         1.2 + odom_pose_position_x, // x lim max
+                                                                         0 + odom_pose_position_x, // x lim min
+                                                                         1 + odom_pose_position_x, // x lim max
                                                                          -0.6 + odom_pose_position_y, // y lim min
                                                                          0.6 + odom_pose_position_y, // y lim max
                                                                          -0.5 + odom_pose_position_z, // z lim min
@@ -148,7 +190,8 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     localPointCloudPub.publish(LocalPointsMsg);
 
 //    gridMapPclLoader.setInputCloud(pcl_cloud_input); // global point cloud
-    gridMapPclLoader.setInputCloud(zf_cloud_ptr); // local point cloud
+    gridMapPclLoader.setInputCloud(zf_cloud_ptr); // local point cloud that used for now
+//    // load parameters from local file doesn't work for now
 //    gridMapPclLoader.loadParameters(ros::package::getPath("grid_map_pcl") + "/config/grid_map_odom_parameters.yaml");
     gm::processPointcloud(&gridMapPclLoader, nh);
 
@@ -205,8 +248,12 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 
     if (line_detection) {
         cv::Mat map_img = cv::imread(img_name);
-        get_edline_detection(map);
-        cv::imwrite(img_with_line_detection_name, map);
+//        get_edline_detection(map);
+//        cv::imwrite(img_with_line_detection_name, map);
+
+        get_edline_detection(map_img);
+//        cv::rectangle(map_img, cv::Point(0, 0), cv::Point(map_img.cols-2, map_img.rows-2), cv::Scalar(0, 255, 0));
+        cv::imwrite(img_with_line_detection_name, map_img);
     }
 
     if (save_grid_map_matrix_to_local) {
@@ -235,7 +282,7 @@ int main(int argc, char** argv) {
     ros::Rate loop_rate(10);
 
     // time synchronizer
-    message_filters::Subscriber<sensor_msgs::PointCloud2> pc2_sub(nh, gm::getPointcloudTopic(nh), 100);
+    message_filters::Subscriber<sensor_msgs::PointCloud2> pc2_sub(nh, gm::getPointcloudTopic(nh), 1);
     message_filters::Subscriber<nav_msgs::Odometry> odom_sub(nh, "/odom", 100);
 
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, nav_msgs::Odometry> MySyncPolicy;
@@ -245,6 +292,7 @@ int main(int argc, char** argv) {
 
     gridMapPub = nh.advertise<grid_map_msgs::GridMap>("/grid_map_from_raw_pointcloud", 1, true);
     localPointCloudPub = nh.advertise<sensor_msgs::PointCloud2>("/local_map", 100);
+    joistDistancePub = nh.advertise<std_msgs::Float32>("/joist_distance", 100);
 
     // run
     ros::spin();
