@@ -114,7 +114,7 @@ float get_edline_detection(cv::Mat& img) {
 
         if ((atan(abs(Lines[i].starty - Lines[i].endy) / abs(Lines[i].startx - Lines[i].endx))) < 0.2) {
             float midy = (Lines[i].starty + Lines[i].endy) / 2;
-            ROS_INFO("midy: %f", midy);
+            ROS_INFO("distance to line from bottom: %f", H - abs(midy));
             min_joist_distance = std::min(min_joist_distance, H - abs(midy)); // note that the top row is 0 and the bottom row is H
             min_joist_distance_msg.data = min_joist_distance;
 
@@ -177,13 +177,14 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 
     // the output image doesn't always have the same size as input pointcloud, therefore it is hard to localize where
     // robot is in the image. To make -0.6 and 0.6 for y we know the robot is always in the middle.
+    // The L515 is about 35cm above ground, so anything less than -0.35 is below floor.
     pcl::PointCloud<pcl::PointXYZ>::Ptr zf_cloud_ptr = pointcloud_filter(pcl_cloud_input,
                                                                          0 + odom_pose_position_x, // x lim min
                                                                          1 + odom_pose_position_x, // x lim max
                                                                          -0.6 + odom_pose_position_y, // y lim min
                                                                          0.6 + odom_pose_position_y, // y lim max
-                                                                         -0.5 + odom_pose_position_z, // z lim min
-                                                                         -0.2 + odom_pose_position_z); // z lim max
+                                                                         -0.35 + odom_pose_position_z, // z lim min
+                                                                         -0.1 + odom_pose_position_z); // z lim max
 
     sensor_msgs::PointCloud2 LocalPointsMsg;
     pcl::toROSMsg(*zf_cloud_ptr, LocalPointsMsg);
