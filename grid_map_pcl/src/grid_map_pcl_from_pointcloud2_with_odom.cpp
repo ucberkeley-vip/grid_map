@@ -256,7 +256,8 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     ROS_INFO("matrix max value: %s", std::to_string(max_value).c_str());
 
     cv::Mat map;
-    grid_map::GridMapCvConverter::toImage<unsigned char, 3>(gridMap, "elevation", CV_16UC3, map);
+    // <unsigned short, 3> is the only configuration works here
+    grid_map::GridMapCvConverter::toImage<unsigned short, 3>(gridMap, "elevation", CV_16UC3, map);
     std::string img_name = "/home/viplab/grid_map_output/grid_map_img.png";
     std::string img_with_line_detection_name = "/home/viplab/grid_map_output/grid_map_img_with_line_detection.png";
 
@@ -276,7 +277,10 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 //        cv::imwrite(img_with_L515_name, img);
     }
 
-    cv::imwrite(img_name, map);
+    cv::Mat greyMat;
+    cv::cvtColor(map, greyMat, CV_BGR2GRAY); // map is a 3 channel BGR image
+    cv::imwrite(img_name, greyMat);
+
 
     if (line_detection) {
         cv::Mat map_img = cv::imread(img_name);
@@ -290,7 +294,8 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 
     if (save_grid_map_matrix_to_local) {
 //        eigen matrix to local txt file
-        std::ofstream file("/home/viplab/grid_map_output/grid_map_eigen.txt");
+        std::ofstream file("/home/viplab/grid_map_output/grid_map_eigen_" + std::to_string(odom_time) + ".txt");
+
         if (file.is_open())
         {
             file << m << '\n';
