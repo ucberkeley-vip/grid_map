@@ -8,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <cmath>
+#include <climits>
 
 #include <ros/ros.h>
 #include <ros/package.h>
@@ -89,8 +90,42 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud_filter(const pcl::PointCloud<pcl:
     return zf_cloud_ptr;
 }
 
+// function to calculate the average height near "potential joist"
+double get_average_grid_height(grid_map::GridMap& grid_map, grid_map::Position& top_left, grid_map::Position& bottom_right) {
+    int grid_map_col = grid_map.getSize()(1);
+    int grid_map_row = grid_map.getSize()(0);
+//    grid_map::Position temp_position;
+//    grid_map.getPosition(grid_map::Index(0, 0), temp_position);
+//    ROS_INFO("at position(%f, %f)", temp_position[0], temp_position[1]);
+
+    int x1 = round(top_left.x()); // x here is actually the column number
+    int y1 = round(top_left.y()); // y here is actually the row number
+    int x2 = round(bottom_right.x());
+    int y2 = round(bottom_right.y());
+    double height_sum = 0;
+    int valid_cell_num = 0;
+    // in grid map, the coordinates of cell is actually (x, y) -> (row, column)
+    // but in OpenCV image, the coordinate of cell is actually (x, y) -> (column, row)
+    for (int i = y1-2; i < y2+3; i++) { // so now i is row number
+        for (int j = x1-2; j < x2+3; j++) { // so now j is column number
+            grid_map::Index current_index = grid_map::Index(i, j); // use index instead of position. We could only get index from images
+            if (i > -1 && i < grid_map_row && j > -1 && j < grid_map_col) {
+//            if (grid_map.isValid(current_index)) {
+//                ROS_INFO("at index(%d, %d)", i, j);
+                float current_index_height = grid_map.at("elevation", grid_map::Index(i, j));
+                if (! isnan(current_index_height)) {
+//                    ROS_INFO("current index height is: %f", current_index_height);
+                    height_sum += grid_map.at("elevation", grid_map::Index(i, j));
+                    valid_cell_num++;
+                }
+            }
+        }
+    }
+    return height_sum / valid_cell_num;
+}
+
 // return the distance of closest horizontal line to the image bottom, also draw lines on image
-float get_edline_detection(cv::Mat& img) {
+double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map) {
     cv::Mat gray_image;
     cv::cvtColor(img, gray_image, cv::COLOR_BGR2GRAY);
     int W = img.cols;
@@ -100,52 +135,48 @@ float get_edline_detection(cv::Mat& img) {
     memcpy(input, gray_image.data, image_size);
     std::vector<line_float_t> Lines;
     boundingbox_t Bbox = { 0,0,W,H };
-    float scalex =1;
-    float scaley =1;
+    double scalex =1;
+    double scaley =1;
     int Flag = 0;
     Flag = EdgeDrawingLineDetector(input, W, H, scalex, scaley, Bbox, Lines);
     ROS_INFO("line detection status: %d", Flag); // 0 means ok
     std_msgs::Float32 min_joist_distance_msg;
-    float min_joist_distance = 999;
+    double min_joist_distance = INT_MAX;
     for (int i = 0; i < Lines.size(); i++)
     {
         // find the horizontal line that closes to the bottom
         // horizontal line has less than 0.2 rad (11.45 degree) of tilt
 
         if ((atan(abs(Lines[i].starty - Lines[i].endy) / abs(Lines[i].startx - Lines[i].endx))) < 0.2) {
-            float midy = (Lines[i].starty + Lines[i].endy) / 2;
+            double midy = (Lines[i].starty + Lines[i].endy) / 2;
             ROS_INFO("distance to line from bottom: %f", H - abs(midy));
-            min_joist_distance = std::min(min_joist_distance, H - abs(midy)); // note that the top row is 0 and the bottom row is H
-            min_joist_distance_msg.data = min_joist_distance;
 
-            // only shows the potential joist
-            line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 255, 0), 2);
+            // get average height around potential joist. This filters out lines that are on the ground.
+            double line_start_x = Lines[i].startx;
+            double line_start_y = Lines[i].starty;
+            double line_end_x = Lines[i].endx;
+            double line_end_y = Lines[i].endy;
+            grid_map::Position top_left = grid_map::Position(std::min(line_start_x, line_end_x), std::min(line_start_y, line_end_y));
+            grid_map::Position bottom_right = grid_map::Position(std::max(line_start_x, line_end_x), std::max(line_start_y, line_end_y));
+            double average_joist_height = get_average_grid_height(grid_map, top_left, bottom_right);
+
+            ROS_INFO("joist height is: %f", average_joist_height);
+            if (average_joist_height > -0.3) { // filter out lines near ground
+                min_joist_distance = std::min(min_joist_distance, H - abs(midy)); // note that the top row is 0 and the bottom row is H
+                min_joist_distance_msg.data = min_joist_distance;
+
+                // only shows the horizontal joist in blue
+                line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(255, 0, 0), 2);
+            }
+
+//            // only shows the potential joist in green
+//            line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 255, 0), 2);
         }
 
+//        // draw all detected lines in red
 //        line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 0, 255), 2);
     }
     joistDistancePub.publish(min_joist_distance_msg);
-}
-
-// function to calculate the average height near "potential joist"
-float get_average_grid_height(grid_map::GridMap grid_map, grid_map::Position& top_left, grid_map::Position& bottom_right) {
-    int grid_map_col = grid_map.getSize()(1);
-    int grid_map_row = grid_map.getSize()(0);
-    int x1 = round(top_left.x());
-    int y1 = round(top_left.y());
-    int x2 = round(bottom_right.x());
-    int y2 = round(bottom_right.y());
-    float height_sum = 0;
-    int valid_cell_num = 0;
-    for (int i = x1-2; i < x2+3; i++) {
-        for (int j = y1-2; i < y2+3; i++) {
-            if (i > -1 && i < grid_map_col && j > -1 && j < grid_map_row) {
-                height_sum += grid_map.atPosition("elevation", grid_map::Position(i, j));
-                valid_cell_num++;
-            }
-        }
-    }
-    return height_sum / valid_cell_num;
 }
 
 void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, const nav_msgs::Odometry::ConstPtr& odom_msg){
@@ -219,8 +250,8 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 
     grid_map::Matrix& m = gridMap.get("elevation");
 
-    float min_value = gridMap.get("elevation").minCoeffOfFinites();
-    float max_value = gridMap.get("elevation").maxCoeffOfFinites();
+    double min_value = gridMap.get("elevation").minCoeffOfFinites();
+    double max_value = gridMap.get("elevation").maxCoeffOfFinites();
     ROS_INFO("matrix min value: %s", std::to_string(min_value).c_str());
     ROS_INFO("matrix max value: %s", std::to_string(max_value).c_str());
 
@@ -252,7 +283,7 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 //        get_edline_detection(map);
 //        cv::imwrite(img_with_line_detection_name, map);
 
-        get_edline_detection(map_img);
+        get_edline_detection(map_img, gridMap);
 //        cv::rectangle(map_img, cv::Point(0, 0), cv::Point(map_img.cols-2, map_img.rows-2), cv::Scalar(0, 255, 0));
         cv::imwrite(img_with_line_detection_name, map_img);
     }
