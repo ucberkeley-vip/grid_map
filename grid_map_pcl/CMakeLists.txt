@@ -43,7 +43,18 @@ find_package(PCL REQUIRED
 find_package(catkin REQUIRED
         COMPONENTS
         ${CATKIN_PACKAGE_DEPENDENCIES}
+        message_generation
         )
+
+add_message_files(
+  FILES
+  Joist.msg
+)
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+)
 
 ###################################
 ## catkin specific configuration ##
@@ -60,7 +71,7 @@ catkin_package(
         LIBRARIES
         ${PROJECT_NAME}
         yaml-cpp
-        CATKIN_DEPENDS
+        CATKIN_DEPENDS message_runtime
         ${CATKIN_PACKAGE_DEPENDENCIES}
         DEPENDS
         PCL

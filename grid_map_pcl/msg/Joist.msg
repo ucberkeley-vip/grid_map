@@ -1,0 +1,2 @@
+float32 joist_height
+float32 joist_distance

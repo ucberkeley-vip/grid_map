@@ -47,13 +47,14 @@
 
 #include "sensor_msgs/PointCloud2.h"
 #include "std_msgs/Float32.h"
+#include "grid_map_pcl/Joist.h"
 
 
 namespace gm = ::grid_map::grid_map_pcl;
 
 ros::Publisher gridMapPub;
 ros::Publisher localPointCloudPub;
-ros::Publisher joistDistancePub;
+ros::Publisher joistPub;
 ros::Subscriber sub;
 
 grid_map::GridMapPclLoader gridMapPclLoader;
@@ -140,8 +141,9 @@ double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map) {
     int Flag = 0;
     Flag = EdgeDrawingLineDetector(input, W, H, scalex, scaley, Bbox, Lines);
     ROS_INFO("line detection status: %d", Flag); // 0 means ok
-    std_msgs::Float32 min_joist_distance_msg;
+    grid_map_pcl::Joist joist_msg;
     double min_joist_distance = INT_MAX;
+    double L515_height = 0.35; // [m]
     for (int i = 0; i < Lines.size(); i++)
     {
         // find the horizontal line that closes to the bottom
@@ -158,12 +160,13 @@ double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map) {
             double line_end_y = Lines[i].endy;
             grid_map::Position top_left = grid_map::Position(std::min(line_start_x, line_end_x), std::min(line_start_y, line_end_y));
             grid_map::Position bottom_right = grid_map::Position(std::max(line_start_x, line_end_x), std::max(line_start_y, line_end_y));
-            double average_joist_height = get_average_grid_height(grid_map, top_left, bottom_right);
+            double average_joist_height = get_average_grid_height(grid_map, top_left, bottom_right) + L515_height; // [m]
 
             ROS_INFO("joist height is: %f", average_joist_height);
-            if (average_joist_height > -0.3) { // filter out lines near ground
+            if (average_joist_height > 0.08) { // filter out lines near ground
                 min_joist_distance = std::min(min_joist_distance, H - abs(midy)); // note that the top row is 0 and the bottom row is H
-                min_joist_distance_msg.data = min_joist_distance;
+                joist_msg.joist_distance = min_joist_distance / 100;
+                joist_msg.joist_height = average_joist_height;
 
                 // only shows the horizontal joist in blue
                 line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(255, 0, 0), 2);
@@ -176,7 +179,7 @@ double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map) {
 //        // draw all detected lines in red
 //        line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 0, 255), 2);
     }
-    joistDistancePub.publish(min_joist_distance_msg);
+    joistPub.publish(joist_msg);
 }
 
 void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, const nav_msgs::Odometry::ConstPtr& odom_msg){
@@ -185,7 +188,6 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     bool save_grid_map_matrix_to_local = false;
     bool line_detection = true;
 
-    ROS_INFO("inside callback");
     ros::NodeHandle nh("~");
 
     pcl::PCLPointCloud2 pcl_pc2;
@@ -214,7 +216,7 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
                                                                          1 + odom_pose_position_x, // x lim max
                                                                          -0.6 + odom_pose_position_y, // y lim min
                                                                          0.6 + odom_pose_position_y, // y lim max
-                                                                         -0.35 + odom_pose_position_z, // z lim min
+                                                                         -0.5 + odom_pose_position_z, // z lim min
                                                                          -0.1 + odom_pose_position_z); // z lim max
 
     sensor_msgs::PointCloud2 LocalPointsMsg;
@@ -329,7 +331,7 @@ int main(int argc, char** argv) {
 
     gridMapPub = nh.advertise<grid_map_msgs::GridMap>("/grid_map_from_raw_pointcloud", 1, true);
     localPointCloudPub = nh.advertise<sensor_msgs::PointCloud2>("/local_map", 100);
-    joistDistancePub = nh.advertise<std_msgs::Float32>("/joist_distance", 100);
+    joistPub = nh.advertise<grid_map_pcl::Joist>("/joist", 100);
 
     // run
     ros::spin();

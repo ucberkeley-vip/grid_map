@@ -23,6 +23,9 @@
   <depend>roscpp</depend>
   <depend>yaml-cpp</depend>
 
+    <build_depend>message_generation</build_depend>
+  <exec_depend>message_runtime</exec_depend>
+
   <exec_depend>rviz</exec_depend>
   
 <!--   <test_depend>cmake_code_coverage</test_depend> -->
