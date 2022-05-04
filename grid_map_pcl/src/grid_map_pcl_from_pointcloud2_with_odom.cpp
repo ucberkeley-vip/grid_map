@@ -136,14 +136,14 @@ double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map) {
     memcpy(input, gray_image.data, image_size);
     std::vector<line_float_t> Lines;
     boundingbox_t Bbox = { 0,0,W,H };
-    double scalex =1;
-    double scaley =1;
+    double scalex = 1;
+    double scaley = 1;
     int Flag = 0;
     Flag = EdgeDrawingLineDetector(input, W, H, scalex, scaley, Bbox, Lines);
     ROS_INFO("line detection status: %d", Flag); // 0 means ok
     grid_map_pcl::Joist joist_msg;
     double min_joist_distance = INT_MAX;
-    double L515_height = 0.35; // [m]
+    double L515_height = 0.33; // [m]
     for (int i = 0; i < Lines.size(); i++)
     {
         // find the horizontal line that closes to the bottom
