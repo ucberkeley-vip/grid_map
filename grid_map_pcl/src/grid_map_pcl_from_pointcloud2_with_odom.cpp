@@ -41,6 +41,7 @@
 #include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include "opencv2/highgui.hpp"
+#include <opencv2/opencv.hpp>
 
 #include "edlines.h"
 #include "edlines.cpp"
@@ -143,13 +144,13 @@ double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map) {
     ROS_INFO("line detection status: %d", Flag); // 0 means ok
     grid_map_pcl::Joist joist_msg;
     double min_joist_distance = INT_MAX;
-    double L515_height = 0.33; // [m]
+    double L515_height = 0.35; // [m]
     for (int i = 0; i < Lines.size(); i++)
     {
         // find the horizontal line that closes to the bottom
         // horizontal line has less than 0.2 rad (11.45 degree) of tilt
 
-        if ((atan(abs(Lines[i].starty - Lines[i].endy) / abs(Lines[i].startx - Lines[i].endx))) < 0.2) {
+        if ((atan(abs(Lines[i].starty - Lines[i].endy) / abs(Lines[i].startx - Lines[i].endx))) < 3.14) {
             double midy = (Lines[i].starty + Lines[i].endy) / 2;
             ROS_INFO("distance to line from bottom: %f", H - abs(midy));
 
@@ -173,11 +174,11 @@ double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map) {
             }
 
 //            // only shows the potential joist in green
-//            line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 255, 0), 2);
+        //    line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 255, 0), 2);
         }
 
 //        // draw all detected lines in red
-//        line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 0, 255), 2);
+    //    line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(0, 0, 255), 2);
     }
     joistPub.publish(joist_msg);
 }
@@ -260,8 +261,10 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     cv::Mat map;
     // <unsigned short, 3> is the only configuration works here
     grid_map::GridMapCvConverter::toImage<unsigned short, 3>(gridMap, "elevation", CV_16UC3, map);
+
     std::string img_name = "/home/viplab/grid_map_output/grid_map_img.png";
     std::string img_with_line_detection_name = "/home/viplab/grid_map_output/grid_map_img_with_line_detection.png";
+    std::string mask_img_name = "/home/viplab/grid_map_output/grid_map_img_mask.png";
 
     if (save_grid_map_to_local) {
         img_name = "/home/viplab/grid_map_output/grid_map_img_" + std::to_string(odom_time) + ".png";
@@ -270,7 +273,9 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
                 "/home/viplab/grid_map_output/grid_map_img_with_L515_" + std::to_string(odom_time) + ".png";
         img_with_line_detection_name =
                 "/home/viplab/grid_map_output/grid_map_img_with_line_detection_" + std::to_string(odom_time) + ".png";
-
+        mask_img_name = // mark all zero value index to 1 and every other index to 0. useful for inpainting
+                "/home/viplab/grid_map_output/grid_map_img_mask_" + std::to_string(odom_time) + ".png";
+        
 //        // draw L515 position as filled circle
 //        cv::Mat img = cv::imread(img_name, cv::IMREAD_COLOR);
 //        cv::Point centerL515(floor(img.cols/2), img.rows-10);
@@ -283,11 +288,14 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     cv::cvtColor(map, greyMat, CV_BGR2GRAY); // map is a 3 channel BGR image
     cv::imwrite(img_name, greyMat);
 
-
     if (line_detection) {
-        cv::Mat map_img = cv::imread(img_name);
-//        get_edline_detection(map);
-//        cv::imwrite(img_with_line_detection_name, map);
+        cv::Mat map_from_img = cv::imread(img_name);
+        cv::Mat mask = (greyMat == 0);
+        cv::Mat map_img;
+        cv::inpaint(map_from_img, mask, map_img, 0.1, cv::INPAINT_TELEA);
+        std::string inpainted_img_name = "/home/viplab/grid_map_output/grid_map_inpainted_" + std::to_string(odom_time) + ".png";
+        // cv::imwrite(mask_img_name, mask);
+        cv::imwrite(inpainted_img_name, map_img);
 
         get_edline_detection(map_img, gridMap);
 //        cv::rectangle(map_img, cv::Point(0, 0), cv::Point(map_img.cols-2, map_img.rows-2), cv::Scalar(0, 255, 0));
