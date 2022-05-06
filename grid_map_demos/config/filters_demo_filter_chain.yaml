@@ -3,6 +3,7 @@ grid_map_filters:
     type: gridMapFilters/MockFilter
     params:
       processing_time: 100
+      print_name: true
   - name: buffer_normalizer
     type: gridMapFilters/BufferNormalizerFilter
 
@@ -14,10 +15,10 @@ grid_map_filters:
   #     output_layer: ...
 
   # Delete color layer.
-#  - name: delete_original_layers
-#    type: gridMapFilters/DeletionFilter
-#    params:
-#      layers: [color] # List of layers.
+  - name: delete_original_layers
+    type: gridMapFilters/DeletionFilter
+    params:
+      layers: [color] # List of layers.
 
   # Fill holes in the map with inpainting.
   - name: inpaint

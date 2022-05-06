@@ -57,9 +57,12 @@ ros::Publisher gridMapPub;
 ros::Publisher localPointCloudPub;
 ros::Publisher joistPub;
 ros::Subscriber sub;
+ros::Subscriber gridMapSub;
 
 grid_map::GridMapPclLoader gridMapPclLoader;
 //ros::NodeHandle nh("~");
+
+double global_odom_time;
 
 // process point cloud and get local point cloud here. Should probably do it elsewhere
 pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud_filter(const pcl::PointCloud<pcl::PointXYZ>::Ptr& pointcloud_input,
@@ -93,7 +96,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud_filter(const pcl::PointCloud<pcl:
 }
 
 // function to calculate the average height near "potential joist"
-double get_average_grid_height(grid_map::GridMap& grid_map, grid_map::Position& top_left, grid_map::Position& bottom_right) {
+double get_average_grid_height(grid_map::GridMap& grid_map, grid_map::Position& top_left, grid_map::Position& bottom_right, std::string layer_name) {
     int grid_map_col = grid_map.getSize()(1);
     int grid_map_row = grid_map.getSize()(0);
 //    grid_map::Position temp_position;
@@ -104,8 +107,9 @@ double get_average_grid_height(grid_map::GridMap& grid_map, grid_map::Position& 
     int y1 = round(top_left.y()); // y here is actually the row number
     int x2 = round(bottom_right.x());
     int y2 = round(bottom_right.y());
+    // ROS_INFO("Line coordinate is (%d, %d) -> (%d, %d)", x1, y1, x2, y2);
     double height_sum = 0;
-    int valid_cell_num = 0;
+    int valid_cell_num = 0 ;
     // in grid map, the coordinates of cell is actually (x, y) -> (row, column)
     // but in OpenCV image, the coordinate of cell is actually (x, y) -> (column, row)
     for (int i = y1-2; i < y2+3; i++) { // so now i is row number
@@ -114,20 +118,23 @@ double get_average_grid_height(grid_map::GridMap& grid_map, grid_map::Position& 
             if (i > -1 && i < grid_map_row && j > -1 && j < grid_map_col) {
 //            if (grid_map.isValid(current_index)) {
 //                ROS_INFO("at index(%d, %d)", i, j);
-                float current_index_height = grid_map.at("elevation", grid_map::Index(i, j));
-                if (! isnan(current_index_height)) {
+                float current_index_height = grid_map.at(layer_name, grid_map::Index(i, j));
+                if (!isnan(current_index_height) && current_index_height > -0.27) {
 //                    ROS_INFO("current index height is: %f", current_index_height);
-                    height_sum += grid_map.at("elevation", grid_map::Index(i, j));
+                    height_sum += current_index_height;
                     valid_cell_num++;
                 }
             }
         }
     }
+    if (valid_cell_num == 0) {
+        return -0.35;
+    }
     return height_sum / valid_cell_num;
 }
 
 // return the distance of closest horizontal line to the image bottom, also draw lines on image
-double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map) {
+double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map, std::string layer_name) {
     cv::Mat gray_image;
     cv::cvtColor(img, gray_image, cv::COLOR_BGR2GRAY);
     int W = img.cols;
@@ -149,8 +156,10 @@ double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map) {
     {
         // find the horizontal line that closes to the bottom
         // horizontal line has less than 0.2 rad (11.45 degree) of tilt
+        double line_orientation_angle = atan(abs(Lines[i].starty - Lines[i].endy) / abs(Lines[i].startx - Lines[i].endx));  // in radians, 0 is horizontal.
+        ROS_INFO("Line orientation in degree: %f", line_orientation_angle * 180 / M_PI);
 
-        if ((atan(abs(Lines[i].starty - Lines[i].endy) / abs(Lines[i].startx - Lines[i].endx))) < 3.14) {
+        if (line_orientation_angle < 3.14) {
             double midy = (Lines[i].starty + Lines[i].endy) / 2;
             ROS_INFO("distance to line from bottom: %f", H - abs(midy));
 
@@ -161,13 +170,14 @@ double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map) {
             double line_end_y = Lines[i].endy;
             grid_map::Position top_left = grid_map::Position(std::min(line_start_x, line_end_x), std::min(line_start_y, line_end_y));
             grid_map::Position bottom_right = grid_map::Position(std::max(line_start_x, line_end_x), std::max(line_start_y, line_end_y));
-            double average_joist_height = get_average_grid_height(grid_map, top_left, bottom_right) + L515_height; // [m]
+            double average_joist_height = get_average_grid_height(grid_map, top_left, bottom_right, layer_name) + L515_height; // [m]
 
             ROS_INFO("joist height is: %f", average_joist_height);
             if (average_joist_height > 0.08) { // filter out lines near ground
                 min_joist_distance = std::min(min_joist_distance, H - abs(midy)); // note that the top row is 0 and the bottom row is H
                 joist_msg.joist_distance = min_joist_distance / 100;
                 joist_msg.joist_height = average_joist_height;
+                joist_msg.joist_theta = line_orientation_angle;
 
                 // only shows the horizontal joist in blue
                 line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(255, 0, 0), 2);
@@ -184,10 +194,11 @@ double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map) {
 }
 
 void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, const nav_msgs::Odometry::ConstPtr& odom_msg){
+     ROS_INFO("inside pointcloud_callback");
     // maybe move all process into this subscriber callback function
     bool save_grid_map_to_local = true;
     bool save_grid_map_matrix_to_local = false;
-    bool line_detection = true;
+    bool line_detection = false;
 
     ros::NodeHandle nh("~");
 
@@ -199,11 +210,11 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     double odom_pose_position_x = odom_msg->pose.pose.position.x;
     double odom_pose_position_y = odom_msg->pose.pose.position.y;
     double odom_pose_position_z = odom_msg->pose.pose.position.z;
-    double odom_time = odom_msg->header.stamp.toSec();
     double map_time = cloud_msg->header.stamp.toSec();
+    global_odom_time = odom_msg->header.stamp.toSec();
 
-    ROS_INFO("pointcloud2 to pcl pointcloud conversion succeed!");
-    ROS_INFO("odom time : %f", odom_time);
+    // ROS_INFO("pointcloud2 to pcl pointcloud conversion succeed!");
+    ROS_INFO("odom time : %f", global_odom_time);
     ROS_INFO("map time : %f", map_time);
     ROS_INFO("position x: %f", odom_pose_position_x);
     ROS_INFO("position y: %f", odom_pose_position_y);
@@ -248,15 +259,15 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     std::string grid_map_col = std::to_string(gridMap.getSize()(1));
     std::string grid_map_row = std::to_string(gridMap.getSize()(0));
 
-    ROS_INFO("grid map column size: %s", grid_map_col.c_str());
-    ROS_INFO("grid map row size: %s", grid_map_row.c_str());
+    // ROS_INFO("grid map column size: %s", grid_map_col.c_str());
+    // ROS_INFO("grid map row size: %s", grid_map_row.c_str());
 
     grid_map::Matrix& m = gridMap.get("elevation");
 
     double min_value = gridMap.get("elevation").minCoeffOfFinites();
     double max_value = gridMap.get("elevation").maxCoeffOfFinites();
-    ROS_INFO("matrix min value: %s", std::to_string(min_value).c_str());
-    ROS_INFO("matrix max value: %s", std::to_string(max_value).c_str());
+    // ROS_INFO("matrix min value: %f", min_value);
+    // ROS_INFO("matrix max value: %f", max_value);
 
     cv::Mat map;
     // <unsigned short, 3> is the only configuration works here
@@ -265,16 +276,17 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     std::string img_name = "/home/viplab/grid_map_output/grid_map_img.png";
     std::string img_with_line_detection_name = "/home/viplab/grid_map_output/grid_map_img_with_line_detection.png";
     std::string mask_img_name = "/home/viplab/grid_map_output/grid_map_img_mask.png";
+    cv::Mat greyMat;
 
     if (save_grid_map_to_local) {
-        img_name = "/home/viplab/grid_map_output/grid_map_img_" + std::to_string(odom_time) + ".png";
+        img_name = "/home/viplab/grid_map_output/grid_map_img_" + std::to_string(global_odom_time) + ".png";
 
         std::string img_with_L515_name =
-                "/home/viplab/grid_map_output/grid_map_img_with_L515_" + std::to_string(odom_time) + ".png";
+                "/home/viplab/grid_map_output/grid_map_img_with_L515_" + std::to_string(global_odom_time) + ".png";
         img_with_line_detection_name =
-                "/home/viplab/grid_map_output/grid_map_img_with_line_detection_" + std::to_string(odom_time) + ".png";
+                "/home/viplab/grid_map_output/grid_map_img_with_line_detection_" + std::to_string(global_odom_time) + ".png";
         mask_img_name = // mark all zero value index to 1 and every other index to 0. useful for inpainting
-                "/home/viplab/grid_map_output/grid_map_img_mask_" + std::to_string(odom_time) + ".png";
+                "/home/viplab/grid_map_output/grid_map_img_mask_" + std::to_string(global_odom_time) + ".png";
         
 //        // draw L515 position as filled circle
 //        cv::Mat img = cv::imread(img_name, cv::IMREAD_COLOR);
@@ -282,29 +294,29 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 //        cv::Scalar color(0,100,0);
 //        cv::circle(img, centerL515, 10, color, cv::FILLED);
 //        cv::imwrite(img_with_L515_name, img);
+        cv::cvtColor(map, greyMat, CV_BGR2GRAY); // map is a 3 channel BGR image
+        cv::imwrite(img_name, greyMat);
     }
 
-    cv::Mat greyMat;
-    cv::cvtColor(map, greyMat, CV_BGR2GRAY); // map is a 3 channel BGR image
-    cv::imwrite(img_name, greyMat);
+    
 
     if (line_detection) {
         cv::Mat map_from_img = cv::imread(img_name);
         cv::Mat mask = (greyMat == 0);
         cv::Mat map_img;
         cv::inpaint(map_from_img, mask, map_img, 0.1, cv::INPAINT_TELEA);
-        std::string inpainted_img_name = "/home/viplab/grid_map_output/grid_map_inpainted_" + std::to_string(odom_time) + ".png";
+        std::string inpainted_img_name = "/home/viplab/grid_map_output/grid_map_inpainted_" + std::to_string(global_odom_time) + ".png";
         // cv::imwrite(mask_img_name, mask);
         cv::imwrite(inpainted_img_name, map_img);
 
-        get_edline_detection(map_img, gridMap);
+        get_edline_detection(map_img, gridMap, "elevation");
 //        cv::rectangle(map_img, cv::Point(0, 0), cv::Point(map_img.cols-2, map_img.rows-2), cv::Scalar(0, 255, 0));
         cv::imwrite(img_with_line_detection_name, map_img);
     }
 
     if (save_grid_map_matrix_to_local) {
 //        eigen matrix to local txt file
-        std::ofstream file("/home/viplab/grid_map_output/grid_map_eigen_" + std::to_string(odom_time) + ".txt");
+        std::ofstream file("/home/viplab/grid_map_output/grid_map_eigen_" + std::to_string(global_odom_time) + ".txt");
 
         if (file.is_open())
         {
@@ -319,6 +331,60 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 
     ROS_INFO("=========================================================");
     ROS_INFO(" ");
+}
+
+void filtered_map_callback(grid_map_msgs::GridMap msg) {
+    bool save_grid_map_to_local = true;
+    bool save_grid_map_matrix_to_local = false;
+    bool line_detection = true;
+
+    grid_map::GridMap filteredGridMap; // use camel case to indicate grid map
+    grid_map::GridMapRosConverter::fromMessage(msg, filteredGridMap);
+    ROS_INFO("inside filtered_map_callback");
+
+    double min_value = filteredGridMap.get("elevation_inpainted").minCoeffOfFinites();
+    double max_value = filteredGridMap.get("elevation_inpainted").maxCoeffOfFinites();
+    ROS_INFO("matrix min value: %f", min_value);
+    ROS_INFO("matrix max value: %f", max_value);
+
+    cv::Mat filtered_map_img;
+    grid_map::GridMapCvConverter::toImage<unsigned short, 3>(filteredGridMap, "elevation_inpainted", CV_16UC3, filtered_map_img);
+
+    std::string img_name = "/home/viplab/grid_map_output/filtered_grid_map_img.png";
+    std::string img_with_line_detection_name = "/home/viplab/grid_map_output/filtered_grid_map_img_with_line_detection.png";
+
+    if (save_grid_map_to_local) {
+        img_name = "/home/viplab/grid_map_output/filtered_grid_map_img_" + std::to_string(global_odom_time) + ".png";
+        img_with_line_detection_name =
+                "/home/viplab/grid_map_output/filtered_grid_map_img_with_line_detection_" + std::to_string(global_odom_time) + ".png";
+        
+        cv::Mat greyMat;
+        cv::cvtColor(filtered_map_img, greyMat, CV_BGR2GRAY); // map is a 3 channel BGR image
+        cv::imwrite(img_name, greyMat);
+    }
+
+    
+
+    if (line_detection) {
+        cv::Mat map_img = cv::imread(img_name);
+
+        get_edline_detection(map_img, filteredGridMap, "elevation_inpainted");
+        cv::imwrite(img_with_line_detection_name, map_img);
+    }
+
+    if (save_grid_map_matrix_to_local) {
+//        eigen matrix to local txt file
+        grid_map::Matrix& m = filteredGridMap.get("elevation_inpainted");
+        std::ofstream file("/home/viplab/grid_map_output/filtered_grid_map_eigen_" + std::to_string(global_odom_time) + ".txt");
+
+        if (file.is_open())
+        {
+            file << m << '\n';
+        }
+    }
+
+
+    ROS_INFO("=========================================================");
 }
 
 int main(int argc, char** argv) {
@@ -340,6 +406,8 @@ int main(int argc, char** argv) {
     gridMapPub = nh.advertise<grid_map_msgs::GridMap>("/grid_map_from_raw_pointcloud", 1, true);
     localPointCloudPub = nh.advertise<sensor_msgs::PointCloud2>("/local_map", 100);
     joistPub = nh.advertise<grid_map_pcl::Joist>("/joist", 100);
+
+    gridMapSub = nh.subscribe("/grid_map_filter_demo/filtered_map", 10, filtered_map_callback);
 
     // run
     ros::spin();

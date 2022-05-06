@@ -3,12 +3,12 @@
   <!-- Launch the grid map filters demo node. -->
   <node pkg="grid_map_demos" type="filters_demo" name="grid_map_filter_demo" output="screen">
     <!-- Input topic -->
-<!--   	<param name="input_topic" value="/image_to_gridmap_demo/grid_map" /> -->
-  	<param name="input_topic" value="/grid_map_pcl_from_pointcloud2/grid_map_from_raw_pointcloud" />
+  	<!-- <param name="input_topic" value="/image_to_gridmap_demo/grid_map" /> -->
+  	<param name="input_topic" value="/grid_map_from_raw_pointcloud" />
   	<!-- Output topic -->
   	<param name="output_topic" value="filtered_map" />
   	<!-- Load grid map filter chain configuration -->
-    <rosparam command="load" file="$(find grid_map_demos)/config/filters_demo_filter_chain.yaml" />
+    <rosparam command="load" file="$(find grid_map_demos)/config/filters_from_mapping_filter_chain.yaml" />
   </node>
 
   <!-- Load the general parameters (except for filter chain) for this demo. -->
