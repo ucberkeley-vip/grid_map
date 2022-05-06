@@ -99,21 +99,18 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud_filter(const pcl::PointCloud<pcl:
 double get_average_grid_height(grid_map::GridMap& grid_map, grid_map::Position& top_left, grid_map::Position& bottom_right, std::string layer_name) {
     int grid_map_col = grid_map.getSize()(1);
     int grid_map_row = grid_map.getSize()(0);
-//    grid_map::Position temp_position;
-//    grid_map.getPosition(grid_map::Index(0, 0), temp_position);
-//    ROS_INFO("at position(%f, %f)", temp_position[0], temp_position[1]);
 
-    int x1 = round(top_left.x()); // x here is actually the column number
-    int y1 = round(top_left.y()); // y here is actually the row number
+    int x1 = round(top_left.x()); // x here is the column number
+    int y1 = round(top_left.y()); // y here is the row number
     int x2 = round(bottom_right.x());
     int y2 = round(bottom_right.y());
     // ROS_INFO("Line coordinate is (%d, %d) -> (%d, %d)", x1, y1, x2, y2);
     double height_sum = 0;
     int valid_cell_num = 0 ;
-    // in grid map, the coordinates of cell is actually (x, y) -> (row, column)
-    // but in OpenCV image, the coordinate of cell is actually (x, y) -> (column, row)
-    for (int i = y1-2; i < y2+3; i++) { // so now i is row number
-        for (int j = x1-2; j < x2+3; j++) { // so now j is column number
+    // in grid map, the coordinates of cell is (x, y) -> (row, column)
+    // but in OpenCV image, the coordinate of cell is (x, y) -> (column, row)
+    for (int i = y1-2; i < y2+3; i++) { // now i is row number
+        for (int j = x1-2; j < x2+3; j++) { // now j is column number
             grid_map::Index current_index = grid_map::Index(i, j); // use index instead of position. We could only get index from images
             if (i > -1 && i < grid_map_row && j > -1 && j < grid_map_col) {
 //            if (grid_map.isValid(current_index)) {
@@ -194,8 +191,7 @@ double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map, std::stri
 }
 
 void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, const nav_msgs::Odometry::ConstPtr& odom_msg){
-     ROS_INFO("inside pointcloud_callback");
-    // maybe move all process into this subscriber callback function
+    ROS_INFO("inside pointcloud_callback");
     bool save_grid_map_to_local = true;
     bool save_grid_map_matrix_to_local = false;
     bool line_detection = false;
@@ -242,19 +238,7 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
     gm::processPointcloud(&gridMapPclLoader, nh);
 
     grid_map::GridMap gridMap = gridMapPclLoader.getGridMap();
-
-////    change map resolution (default is 0.01)
-//    grid_map::GridMap originalMap = gridMapPclLoader.getGridMap();
-//    grid_map::GridMap gridMap;
-//    grid_map::GridMapCvProcessing::changeResolution(originalMap, gridMap, 0.005);
-
     gridMap.setFrameId(gm::getMapFrame(nh));
-
-////    print out layers in grid map
-//    std::vector<std::string> layer_name = gridMap.getLayers();
-//    for (auto &name : layer_name) {
-//        ROS_INFO("layer name %s", name.c_str());
-//    }
 
     std::string grid_map_col = std::to_string(gridMap.getSize()(1));
     std::string grid_map_row = std::to_string(gridMap.getSize()(0));
@@ -275,47 +259,27 @@ void pointcloud_callback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg, con
 
     std::string img_name = "/home/viplab/grid_map_output/grid_map_img.png";
     std::string img_with_line_detection_name = "/home/viplab/grid_map_output/grid_map_img_with_line_detection.png";
-    std::string mask_img_name = "/home/viplab/grid_map_output/grid_map_img_mask.png";
-    cv::Mat greyMat;
 
     if (save_grid_map_to_local) {
         img_name = "/home/viplab/grid_map_output/grid_map_img_" + std::to_string(global_odom_time) + ".png";
-
-        std::string img_with_L515_name =
-                "/home/viplab/grid_map_output/grid_map_img_with_L515_" + std::to_string(global_odom_time) + ".png";
         img_with_line_detection_name =
                 "/home/viplab/grid_map_output/grid_map_img_with_line_detection_" + std::to_string(global_odom_time) + ".png";
-        mask_img_name = // mark all zero value index to 1 and every other index to 0. useful for inpainting
-                "/home/viplab/grid_map_output/grid_map_img_mask_" + std::to_string(global_odom_time) + ".png";
-        
-//        // draw L515 position as filled circle
-//        cv::Mat img = cv::imread(img_name, cv::IMREAD_COLOR);
-//        cv::Point centerL515(floor(img.cols/2), img.rows-10);
-//        cv::Scalar color(0,100,0);
-//        cv::circle(img, centerL515, 10, color, cv::FILLED);
-//        cv::imwrite(img_with_L515_name, img);
+
+        cv::Mat greyMat;
         cv::cvtColor(map, greyMat, CV_BGR2GRAY); // map is a 3 channel BGR image
         cv::imwrite(img_name, greyMat);
     }
 
-    
-
     if (line_detection) {
-        cv::Mat map_from_img = cv::imread(img_name);
-        cv::Mat mask = (greyMat == 0);
-        cv::Mat map_img;
-        cv::inpaint(map_from_img, mask, map_img, 0.1, cv::INPAINT_TELEA);
-        std::string inpainted_img_name = "/home/viplab/grid_map_output/grid_map_inpainted_" + std::to_string(global_odom_time) + ".png";
-        // cv::imwrite(mask_img_name, mask);
-        cv::imwrite(inpainted_img_name, map_img);
+        cv::Mat map_img = cv::imread(img_name);
 
         get_edline_detection(map_img, gridMap, "elevation");
-//        cv::rectangle(map_img, cv::Point(0, 0), cv::Point(map_img.cols-2, map_img.rows-2), cv::Scalar(0, 255, 0));
+        // cv::rectangle(map_img, cv::Point(0, 0), cv::Point(map_img.cols-2, map_img.rows-2), cv::Scalar(0, 255, 0));
         cv::imwrite(img_with_line_detection_name, map_img);
     }
 
     if (save_grid_map_matrix_to_local) {
-//        eigen matrix to local txt file
+        // eigen matrix to local txt file
         std::ofstream file("/home/viplab/grid_map_output/grid_map_eigen_" + std::to_string(global_odom_time) + ".txt");
 
         if (file.is_open())
@@ -363,8 +327,6 @@ void filtered_map_callback(grid_map_msgs::GridMap msg) {
         cv::imwrite(img_name, greyMat);
     }
 
-    
-
     if (line_detection) {
         cv::Mat map_img = cv::imread(img_name);
 
@@ -373,7 +335,7 @@ void filtered_map_callback(grid_map_msgs::GridMap msg) {
     }
 
     if (save_grid_map_matrix_to_local) {
-//        eigen matrix to local txt file
+        // eigen matrix to local txt file
         grid_map::Matrix& m = filteredGridMap.get("elevation_inpainted");
         std::ofstream file("/home/viplab/grid_map_output/filtered_grid_map_eigen_" + std::to_string(global_odom_time) + ".txt");
 
