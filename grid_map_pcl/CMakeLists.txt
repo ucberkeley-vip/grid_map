@@ -42,6 +42,7 @@ find_package(PCL REQUIRED
 ## Find catkin macros and libraries
 find_package(catkin REQUIRED
         COMPONENTS
+        std_msgs
         ${CATKIN_PACKAGE_DEPENDENCIES}
         message_generation
         )
