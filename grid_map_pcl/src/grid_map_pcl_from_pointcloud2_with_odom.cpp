@@ -63,6 +63,7 @@ grid_map::GridMapPclLoader gridMapPclLoader;
 //ros::NodeHandle nh("~");
 
 double global_odom_time;
+int joist_msg_seq = 0;
 
 // process point cloud and get local point cloud here. Should probably do it elsewhere
 pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud_filter(const pcl::PointCloud<pcl::PointXYZ>::Ptr& pointcloud_input,
@@ -158,7 +159,7 @@ double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map, std::stri
 
         if (line_orientation_angle < 3.14) {
             double midy = (Lines[i].starty + Lines[i].endy) / 2;
-            ROS_INFO("distance to line from bottom: %f", H - abs(midy));
+            ROS_INFO("distance to line from bottom: %f", (H - abs(midy)) / 100); // [m]
 
             // get average height around potential joist. This filters out lines that are on the ground.
             double line_start_x = Lines[i].startx;
@@ -175,6 +176,12 @@ double get_edline_detection(cv::Mat& img, grid_map::GridMap& grid_map, std::stri
                 joist_msg.joist_distance = min_joist_distance / 100;
                 joist_msg.joist_height = average_joist_height;
                 joist_msg.joist_theta = line_orientation_angle;
+                joist_msg.header.seq = joist_msg_seq;
+                ros::Time odom_time(global_odom_time);
+                joist_msg.header.stamp = odom_time;
+                joist_msg.header.frame_id = "odom";
+
+                joist_msg_seq++;
 
                 // only shows the horizontal joist in blue
                 line(img, cv::Point(Lines[i].startx, Lines[i].starty), cv::Point(Lines[i].endx, Lines[i].endy), cv::Scalar(255, 0, 0), 2);
